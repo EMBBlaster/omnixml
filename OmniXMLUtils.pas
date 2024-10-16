@@ -2,18 +2,19 @@
    different types, manipulate nodes, load/save XML documents.
    @author Primoz Gabrijelcic
    @desc <pre>
-   (c) 2011 Primoz Gabrijelcic
+   (c) 2016 Primoz Gabrijelcic
    Free for personal and commercial use. No rights reserved.
 
    Author            : Primoz Gabrijelcic
    Creation date     : 2001-10-25
-   Last modification : 2013-12-12
-   Version           : 1.31
+   Last modification : 2016-12-14
+   Version           : 1.31a
 </pre>*)(*
    History:
+     1.31a: 2016-12-14
+       - Fixed SelectNode when names of parent and child node are the same.
      1.31: 2013-12-13
-       - Can be compiled without VCL (/dNOVCL). Font persistency would then
-         be disabled.
+       - Can be compiled without VCL (/dNOVCL). That also disables font persistency.
        - Added procedure SetNodeAttrs.
      1.30: 2011-03-01
        - Convert EFOpenError exception in XMLLoadFromFile to function result.
@@ -152,6 +153,10 @@ interface
     {$DEFINE OmniXmlUtils_UseUITypes}
   {$IFEND}
 {$ENDIF}
+
+{$IFDEF NEXTGEN}
+  {$DEFINE NoVCL}
+{$ENDIF NEXTGEN}
 
 uses
 {$IFDEF MSWINDOWS}
@@ -496,21 +501,25 @@ type
   function XMLLoadFromString(xmlDocument: IXMLDocument;
     const xmlData: XmlString): boolean;
 
+ {$IFDEF OmniXML_SupportAnsiStrings}
   {:Load XML document from an ansi string.
   }
   function XMLLoadFromAnsiString(xmlDocument: IXMLDocument;
     const xmlData: AnsiString): boolean;
+ {$ENDIF OmniXML_SupportAnsiStrings}
 
   {:Save XML document to a wide string.
   }
   function XMLSaveToString(xmlDocument: IXMLDocument;
     outputFormat: TOutputFormat = ofNone): XmlString;
 
+ {$IFDEF OmniXML_SupportAnsiStrings}
   {:Save XML document to an ansi string, automatically adding UTF8 processing
     instruction if required.
   }
   function XMLSaveToAnsiString(xmlDocument: IXMLDocument;
     outputFormat: TOutputFormat = ofNone): AnsiString;
+ {$ENDIF OmniXML_SupportAnsiStrings}
 
   {:Load XML document from a stream.
   }
@@ -525,7 +534,12 @@ type
   {:Load XML document from a file.
   }
   function XMLLoadFromFile(xmlDocument: IXMLDocument;
-    const xmlFileName: string): boolean;
+    const xmlFileName: string): boolean; overload;
+
+  {:Load XML document from a file, returning error message on error.
+  }
+  function XMLLoadFromFile(xmlDocument: IXMLDocument; const xmlFileName: string;
+    out errorMsg: string): boolean; overload;
 
   {:Save XML document to a file.
   }
@@ -2421,21 +2435,21 @@ end; { FindProcessingInstruction }
 }
 function SelectNode(parentNode: IXMLNode; const nodeTag: string): IXMLNode;
 begin
-  if IsDocument(parentNode) and (assigned(DocumentElement(parentNode))) then
-    Result := DocumentElement(parentNode)
-  else
-    Result := parentNode;
-  if (nodeTag <> '') and assigned(Result) and (Result.NodeName <> nodeTag) then
-    Result := Result.SelectSingleNode(nodeTag);
+  SelectNode(parentNode, nodeTag, Result);
 end; { SelectNode }
 
 function SelectNode(parentNode: IXMLNode; const nodeTag: string; var childNode: IXMLNode): boolean;
 begin
-  if IsDocument(parentNode) and (assigned(DocumentElement(parentNode))) then
-    childNode := DocumentElement(parentNode)
+  if IsDocument(parentNode) and (assigned(DocumentElement(parentNode))) then begin
+    childNode := DocumentElement(parentNode);
+    if (nodeTag <> '') and assigned(childNode) and (childNode.NodeName = nodeTag) then begin
+      Result := true;
+      Exit;
+    end;
+  end
   else
     childNode := parentNode;
-  if (nodeTag <> '') and assigned(childNode) and (childNode.NodeName <> nodeTag) then
+  if (nodeTag <> '') and assigned(childNode) then
     childNode := childNode.SelectSingleNode(nodeTag);
   Result := assigned(childNode);
 end; { SelectNode }
@@ -2490,6 +2504,7 @@ begin
   Result := xmlDocument.LoadXML(xmlData);
 end; { XMLLoadFromString }
 
+{$IFDEF OmniXML_SupportAnsiStrings}
 {:@param   xmlDocument XML document.
   @param   xmlData     XML document, stored in the string.
   @returns True if xmlData was successfully parsed and loaded into the
@@ -2506,6 +2521,7 @@ begin
     Result := XMLLoadFromStream(xmlDocument, sStr);
   finally FreeAndNil(sStr); end;
 end; { XMLLoadFromString }
+{$ENDIF OmniXML_SupportAnsiStrings}
 
 {:@param   xmlDocument  XML document.
   @param   outputFormat XML document formatting.
@@ -2539,6 +2555,7 @@ begin
 {$ENDIF USE_MSXML}
 end; { XMLSaveToString }
 
+{$IFDEF OmniXML_SupportAnsiStrings}
 {:@param   xmlDocument  XML document.
   @param   outputFormat XML document formatting.
   @returns Contents of the XML document, stored in the string.
@@ -2555,6 +2572,7 @@ begin
     Result := AnsiString(sStr.DataString);
   finally FreeAndNil(sStr); end;
 end; { XMLSaveToString }
+{$ENDIF OmniXML_SupportAnsiStrings}
 
 {:@param   xmlDocument XML document.
   @param   xmlStream   Stream containing XML document.
@@ -2609,12 +2627,30 @@ end; { XMLSaveToStream }
   @since   2001-10-24
 }
 function XMLLoadFromFile(xmlDocument: IXMLDocument; const xmlFileName: string): boolean;
+var
+  errorMsg: string;
 begin
+  Result := XMLLoadFromFile(xmlDocument, xmlFileName, errorMsg);
+end; { XMLLoadFromFile }
+
+{:@param   xmlDocument XML document.
+  @param   xmlFileName Name of the file containing XML document.
+  @param   errorMsg Empty if XML was loaded without a problem, error message instead.
+  @returns True if contents of file were successfully parsed and loaded into the
+           xmlDocument.
+  @since   2014-11-19
+}
+function XMLLoadFromFile(xmlDocument: IXMLDocument; const xmlFileName: string;
+  out errorMsg: string): boolean;
+begin
+  errorMsg := '';
   try
     Result := xmlDocument.Load(xmlFileName);
   except
-    on E: EFOpenError do
+    on E: EFOpenError do begin
+      errorMsg := E.Message;
       Result := false;
+    end;
   end;
 end; { XMLLoadFromFile }
 
